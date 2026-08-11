@@ -1,0 +1,29 @@
+body {
+  width: 320px;
+  margin: 0;
+  padding: 16px;
+  background-color: #0f172a;
+  color: #e2e8f0;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+h3 {
+  margin: 0 0 12px 0;
+  color: #f2a93b;
+  font-size: 16px;
+}
+
+input[type="file"] {
+  color: #e2e8f0;
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+
+#output {
+  margin-top: 16px;
+  padding: 10px;
+  background-color: #1e293b;
+  border-radius: 6px;
+  font-size: 13px;
+  white-space: pre-line;
+}
