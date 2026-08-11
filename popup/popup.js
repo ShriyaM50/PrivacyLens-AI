@@ -8,14 +8,28 @@ fileInput.addEventListener('change', async (event) => {
   const text = await file.text();
   console.log(text);
 
-  const emailPattern = /\S+@\S+\.\S+/;
+  const emailPattern = /\S+@\S+\.\S+/g;
   const found = text.match(emailPattern);
   console.log(found);
 
-  const phonePattern = /\d{10}/;
+  const phonePattern = /\d{10}/g;
   const foundPhone = text.match(phonePattern);
   console.log(foundPhone);
 
-  const results = "Email: " + found + "\nPhone: " + foundPhone;
+  let emailText;
+  if (found) {
+    emailText = found.join('\n');
+  } else {
+    emailText = "No email found";
+  }
+
+  let phoneText;
+  if (foundPhone) {
+    phoneText = foundPhone.join('\n');
+  } else {
+    phoneText = "No phone number found";
+  }
+
+  const results = "Email:\n" + emailText + "\n\nPhone:\n" + phoneText;
   output.textContent = results;
 });
