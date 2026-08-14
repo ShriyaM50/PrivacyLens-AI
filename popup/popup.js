@@ -35,6 +35,14 @@ function isValidAadhaar(numStr) {
   return checksum === 0;
 }
 
+// PAN validation — structural, not checksum-based
+const PAN_FOURTH_CHAR = new Set(['P','C','H','A','B','G','J','L','F','T']);
+
+function isValidPAN(pan) {
+  if (!/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan)) return false;
+  return PAN_FOURTH_CHAR.has(pan[3]);
+}
+
 fileInput.addEventListener('change', async (event) => {
   const file = event.target.files[0];
   console.log(file);
@@ -68,7 +76,6 @@ fileInput.addEventListener('change', async (event) => {
     // --- Phone detector (skip anything that's part of a valid Aadhaar match) ---
     const phoneCandidates = text.match(/\d{10}/g) || [];
     const realPhones = phoneCandidates.filter((phone) => {
-      // Reject a "phone" match if it's just a substring of a validated Aadhaar number
       return !validAadhaars.some((aadhaar) => aadhaar.includes(phone));
     });
 
@@ -79,7 +86,22 @@ fileInput.addEventListener('change', async (event) => {
       phoneText = "No phone number found";
     }
 
-    const results = "Email:\n" + emailText + "\n\nPhone:\n" + phoneText + "\n\nAadhaar:\n" + aadhaarText;
+    // --- PAN detector (structural validation) ---
+    const panCandidates = text.match(/\b[A-Z]{5}[0-9]{4}[A-Z]\b/g) || [];
+    const validPANs = panCandidates.filter(isValidPAN);
+
+    let panText;
+    if (validPANs.length > 0) {
+      panText = validPANs.join('\n');
+    } else {
+      panText = "No PAN number found";
+    }
+
+    const results =
+      "Email:\n" + emailText +
+      "\n\nPhone:\n" + phoneText +
+      "\n\nAadhaar:\n" + aadhaarText +
+      "\n\nPAN:\n" + panText;
     output.textContent = results;
 
   } else if (file.type === 'application/pdf') {
