@@ -99,15 +99,56 @@ function runDetectors(text) {
   });
   let phoneText = realPhones.length > 0 ? realPhones.join('\n') : "No phone number found";
 
-  return (
-    "Email:\n" + emailText +
-    "\n\nPhone:\n" + phoneText +
-    "\n\nAadhaar:\n" + aadhaarText +
-    "\n\nPAN:\n" + panText +
-    "\n\nCard:\n" + cardText
-  );
+ return {
+    emailCount: found ? found.length : 0,
+    phoneCount: realPhones.length,
+    aadhaarCount: validAadhaars.length,
+    panCount: validPANs.length,
+    cardCount: validCards.length,
+    emailText,
+    phoneText,
+    aadhaarText,
+    panText,
+    cardText
+  };
+}
+function computeRiskScore(counts) {
+  let score = 0;
+  score += counts.aadhaarCount * 25;
+  score += counts.cardCount * 25;
+  score += counts.panCount * 20;
+  score += counts.phoneCount * 10;
+  score += counts.emailCount * 10;
+
+  if (score > 100) score = 100;
+
+  let label;
+  if (score === 0) {
+    label = "No Risk";
+  } else if (score <= 30) {
+    label = "Low Risk";
+  } else if (score <= 60) {
+    label = "Medium Risk";
+  } else {
+    label = "High Risk";
+  }
+
+  return { score, label };
 }
 
+function buildReport(text) {
+  const results = runDetectors(text);
+  const risk = computeRiskScore(results);
+
+  return (
+    "Risk Score: " + risk.score + "/100 (" + risk.label + ")" +
+    "\n\nEmail:\n" + results.emailText +
+    "\n\nPhone:\n" + results.phoneText +
+    "\n\nAadhaar:\n" + results.aadhaarText +
+    "\n\nPAN:\n" + results.panText +
+    "\n\nCard:\n" + results.cardText
+  );
+}
 fileInput.addEventListener('change', async (event) => {
   const file = event.target.files[0];
   console.log(file);
@@ -115,7 +156,7 @@ fileInput.addEventListener('change', async (event) => {
   if (file.type === 'text/plain') {
     const text = await file.text();
     console.log(text);
-    output.textContent = runDetectors(text);
+    output.textContent = buildReport(text);
 
   } else if (file.type === 'application/pdf') {
     const arrayBuffer = await file.arrayBuffer();
@@ -130,7 +171,7 @@ fileInput.addEventListener('change', async (event) => {
       fullText += pageText + '\n';
     }
     console.log(fullText);
-    output.textContent = runDetectors(fullText);
+    output.textContent = buildReport(fullText);
 
   } else if (file.type.startsWith('image/')) {
      output.textContent = "Reading image, please wait...";
@@ -141,7 +182,7 @@ fileInput.addEventListener('change', async (event) => {
   console.log(text);
 
   await worker.terminate();
-  output.textContent = runDetectors(text);
+  output.textContent = buildReport(text);
 
   } else {
     output.textContent = "This file type isn't supported yet.";
