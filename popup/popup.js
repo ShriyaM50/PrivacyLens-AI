@@ -59,6 +59,16 @@ function isValidCard(numStr) {
   }
   return sum % 10 === 0;
 }
+async function getOcrWorker() {
+  const worker = await Tesseract.createWorker('eng', 1, {
+    workerPath: chrome.runtime.getURL('lib/worker.min.js'),
+    corePath: chrome.runtime.getURL('lib/tesseract-core-simd.wasm.js'),
+    langPath: chrome.runtime.getURL('tessdata/'),
+    gzip: true,
+    workerBlobURL: false
+  });
+  return worker;
+}
 
 // Runs all five detectors on any text string and returns a formatted results string.
 // Pulled out into its own function so both the .txt path and the PDF path can reuse it.
@@ -123,7 +133,15 @@ fileInput.addEventListener('change', async (event) => {
     output.textContent = runDetectors(fullText);
 
   } else if (file.type.startsWith('image/')) {
-    output.textContent = "Image support coming soon!";
+     output.textContent = "Reading image, please wait...";
+
+  const worker = await getOcrWorker();
+  const result = await worker.recognize(file);
+  const text = result.data.text;
+  console.log(text);
+
+  await worker.terminate();
+  output.textContent = runDetectors(text);
 
   } else {
     output.textContent = "This file type isn't supported yet.";
