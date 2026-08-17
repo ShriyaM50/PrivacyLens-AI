@@ -45,7 +45,22 @@ function isValidPAN(pan) {
   return PAN_FOURTH_CHAR.has(pan[3]);
 }
 
-// Runs all four detectors on any text string and returns a formatted results string.
+function isValidCard(numStr) {
+  let sum = 0;
+  let shouldDouble = false;
+  for (let i = numStr.length - 1; i >= 0; i--) {
+    let digit = parseInt(numStr[i], 10);
+    if (shouldDouble) {
+      digit *= 2;
+      if (digit > 9) digit -= 9;
+    }
+    sum += digit;
+    shouldDouble = !shouldDouble;
+  }
+  return sum % 10 === 0;
+}
+
+// Runs all five detectors on any text string and returns a formatted results string.
 // Pulled out into its own function so both the .txt path and the PDF path can reuse it.
 function runDetectors(text) {
   const emailPattern = /\S+@\S+\.\S+/g;
@@ -56,21 +71,30 @@ function runDetectors(text) {
   const validAadhaars = aadhaarCandidates.filter(isValidAadhaar);
   let aadhaarText = validAadhaars.length > 0 ? validAadhaars.join('\n') : "No Aadhaar number found";
 
-  const phoneCandidates = text.match(/\d{10}/g) || [];
-  const realPhones = phoneCandidates.filter((phone) => {
-    return !validAadhaars.some((aadhaar) => aadhaar.includes(phone));
-  });
-  let phoneText = realPhones.length > 0 ? realPhones.join('\n') : "No phone number found";
-
   const panCandidates = text.match(/\b[A-Z]{5}[0-9]{4}[A-Z]\b/g) || [];
   const validPANs = panCandidates.filter(isValidPAN);
   let panText = validPANs.length > 0 ? validPANs.join('\n') : "No PAN number found";
+
+  const cardCandidates = text.match(/\d{16}/g) || [];
+  const validCards = cardCandidates.filter(isValidCard);
+  let cardText = validCards.length > 0 ? validCards.join('\n') : "No card number found";
+
+  // Phone check comes AFTER Aadhaar and Card, since it needs to exclude
+  // any 10-digit chunk that's actually just part of one of those.
+  const phoneCandidates = text.match(/\d{10}/g) || [];
+  const realPhones = phoneCandidates.filter((phone) => {
+    const isPartOfAadhaar = validAadhaars.some((aadhaar) => aadhaar.includes(phone));
+    const isPartOfCard = validCards.some((card) => card.includes(phone));
+    return !isPartOfAadhaar && !isPartOfCard;
+  });
+  let phoneText = realPhones.length > 0 ? realPhones.join('\n') : "No phone number found";
 
   return (
     "Email:\n" + emailText +
     "\n\nPhone:\n" + phoneText +
     "\n\nAadhaar:\n" + aadhaarText +
-    "\n\nPAN:\n" + panText
+    "\n\nPAN:\n" + panText +
+    "\n\nCard:\n" + cardText
   );
 }
 
