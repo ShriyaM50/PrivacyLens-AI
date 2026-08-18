@@ -70,6 +70,17 @@ async function getOcrWorker() {
   return worker;
 }
 
+// Reads hidden EXIF metadata (GPS location, camera info) from an image file.
+// Wrapped in try/catch since images with no/corrupted EXIF data can throw an error.
+async function getImageMetadata(file) {
+  try {
+    const tags = await exifr.parse(file, { gps: true });
+    return tags;
+  } catch (e) {
+    return null;
+  }
+}
+
 function runDetectors(text) {
   const emailPattern = /\S+@\S+\.\S+/g;
   const found = text.match(emailPattern);
@@ -114,6 +125,30 @@ function runDetectors(text) {
   };
 }
 
+// Turns raw EXIF tags into a readable summary and a flag for whether GPS was found.
+function summarizeMetadata(tags) {
+  if (!tags) {
+    return { hasGPS: false, summaryText: "No metadata found" };
+  }
+
+  const lines = [];
+  let hasGPS = false;
+
+  if (tags.latitude != null && tags.longitude != null) {
+    hasGPS = true;
+    lines.push("GPS Location: " + tags.latitude.toFixed(5) + ", " + tags.longitude.toFixed(5));
+  }
+  if (tags.Make || tags.Model) {
+    lines.push("Device: " + [tags.Make, tags.Model].filter(Boolean).join(' '));
+  }
+  if (tags.DateTimeOriginal) {
+    lines.push("Taken: " + tags.DateTimeOriginal);
+  }
+
+  const summaryText = lines.length > 0 ? lines.join('\n') : "No metadata found";
+  return { hasGPS, summaryText };
+}
+
 function computeRiskScore(counts) {
   let score = 0;
   score += counts.aadhaarCount * 25;
@@ -122,6 +157,7 @@ function computeRiskScore(counts) {
   score += counts.phoneCount * 10;
   score += counts.emailCount * 10;
   score += counts.awsCount * 25;
+  if (counts.hasGPS) score += 25;
 
   if (score > 100) score = 100;
 
@@ -139,19 +175,25 @@ function computeRiskScore(counts) {
   return { score, label };
 }
 
-function buildReport(text) {
+function buildReport(text, metadataInfo) {
   const results = runDetectors(text);
-  const risk = computeRiskScore(results);
+  const combinedCounts = Object.assign({}, results, { hasGPS: metadataInfo ? metadataInfo.hasGPS : false });
+  const risk = computeRiskScore(combinedCounts);
 
-  return (
+  let report =
     "Risk Score: " + risk.score + "/100 (" + risk.label + ")" +
     "\n\nEmail:\n" + results.emailText +
     "\n\nPhone:\n" + results.phoneText +
     "\n\nAadhaar:\n" + results.aadhaarText +
     "\n\nPAN:\n" + results.panText +
     "\n\nCard:\n" + results.cardText +
-    "\n\nAWS Key:\n" + results.awsText
-  );
+    "\n\nAWS Key:\n" + results.awsText;
+
+  if (metadataInfo) {
+    report += "\n\nMetadata:\n" + metadataInfo.summaryText;
+  }
+
+  return report;
 }
 
 fileInput.addEventListener('change', async (event) => {
@@ -188,13 +230,17 @@ fileInput.addEventListener('change', async (event) => {
   } else if (file.type.startsWith('image/')) {
     output.textContent = "Reading image, please wait...";
 
+    const metadata = await getImageMetadata(file);
+    console.log(metadata);
+    const metadataInfo = summarizeMetadata(metadata);
+
     const worker = await getOcrWorker();
     const result = await worker.recognize(file);
     const text = result.data.text;
     console.log(text);
 
     await worker.terminate();
-    output.textContent = buildReport(text);
+    output.textContent = buildReport(text, metadataInfo);
 
   } else {
     output.textContent = "This file type isn't supported yet.";
