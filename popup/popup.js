@@ -37,7 +37,6 @@ function isValidAadhaar(numStr) {
   return checksum === 0;
 }
 
-// PAN validation — structural, not checksum-based
 const PAN_FOURTH_CHAR = new Set(['P','C','H','A','B','G','J','L','F','T']);
 
 function isValidPAN(pan) {
@@ -59,6 +58,7 @@ function isValidCard(numStr) {
   }
   return sum % 10 === 0;
 }
+
 async function getOcrWorker() {
   const worker = await Tesseract.createWorker('eng', 1, {
     workerPath: chrome.runtime.getURL('lib/worker.min.js'),
@@ -70,8 +70,6 @@ async function getOcrWorker() {
   return worker;
 }
 
-// Runs all five detectors on any text string and returns a formatted results string.
-// Pulled out into its own function so both the .txt path and the PDF path can reuse it.
 function runDetectors(text) {
   const emailPattern = /\S+@\S+\.\S+/g;
   const found = text.match(emailPattern);
@@ -89,8 +87,9 @@ function runDetectors(text) {
   const validCards = cardCandidates.filter(isValidCard);
   let cardText = validCards.length > 0 ? validCards.join('\n') : "No card number found";
 
-  // Phone check comes AFTER Aadhaar and Card, since it needs to exclude
-  // any 10-digit chunk that's actually just part of one of those.
+  const awsCandidates = text.match(/AKIA[A-Z0-9]{16}/g) || [];
+  let awsText = awsCandidates.length > 0 ? awsCandidates.join('\n') : "No AWS key found";
+
   const phoneCandidates = text.match(/\d{10}/g) || [];
   const realPhones = phoneCandidates.filter((phone) => {
     const isPartOfAadhaar = validAadhaars.some((aadhaar) => aadhaar.includes(phone));
@@ -99,19 +98,22 @@ function runDetectors(text) {
   });
   let phoneText = realPhones.length > 0 ? realPhones.join('\n') : "No phone number found";
 
- return {
+  return {
     emailCount: found ? found.length : 0,
     phoneCount: realPhones.length,
     aadhaarCount: validAadhaars.length,
     panCount: validPANs.length,
     cardCount: validCards.length,
+    awsCount: awsCandidates.length,
     emailText,
     phoneText,
     aadhaarText,
     panText,
-    cardText
+    cardText,
+    awsText
   };
 }
+
 function computeRiskScore(counts) {
   let score = 0;
   score += counts.aadhaarCount * 25;
@@ -119,6 +121,7 @@ function computeRiskScore(counts) {
   score += counts.panCount * 20;
   score += counts.phoneCount * 10;
   score += counts.emailCount * 10;
+  score += counts.awsCount * 25;
 
   if (score > 100) score = 100;
 
@@ -146,9 +149,11 @@ function buildReport(text) {
     "\n\nPhone:\n" + results.phoneText +
     "\n\nAadhaar:\n" + results.aadhaarText +
     "\n\nPAN:\n" + results.panText +
-    "\n\nCard:\n" + results.cardText
+    "\n\nCard:\n" + results.cardText +
+    "\n\nAWS Key:\n" + results.awsText
   );
 }
+
 fileInput.addEventListener('change', async (event) => {
   const file = event.target.files[0];
   console.log(file);
@@ -173,16 +178,23 @@ fileInput.addEventListener('change', async (event) => {
     console.log(fullText);
     output.textContent = buildReport(fullText);
 
+  } else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+    const arrayBuffer = await file.arrayBuffer();
+    const result = await mammoth.extractRawText({ arrayBuffer: arrayBuffer });
+    const text = result.value;
+    console.log(text);
+    output.textContent = buildReport(text);
+
   } else if (file.type.startsWith('image/')) {
-     output.textContent = "Reading image, please wait...";
+    output.textContent = "Reading image, please wait...";
 
-  const worker = await getOcrWorker();
-  const result = await worker.recognize(file);
-  const text = result.data.text;
-  console.log(text);
+    const worker = await getOcrWorker();
+    const result = await worker.recognize(file);
+    const text = result.data.text;
+    console.log(text);
 
-  await worker.terminate();
-  output.textContent = buildReport(text);
+    await worker.terminate();
+    output.textContent = buildReport(text);
 
   } else {
     output.textContent = "This file type isn't supported yet.";
