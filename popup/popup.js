@@ -121,7 +121,6 @@ function runDetectors(text) {
     panText,
     cardText,
     awsText,
-    // Raw matched values — needed for redaction, not just display
     emailMatches: found || [],
     aadhaarMatches: validAadhaars,
     panMatches: validPANs,
@@ -201,7 +200,6 @@ function buildReport(text, metadataInfo) {
   return { report, results };
 }
 
-// Replaces every detected sensitive value in the original text with a labeled placeholder.
 function redactText(text, results) {
   let redacted = text;
 
@@ -221,7 +219,6 @@ function redactText(text, results) {
   return redacted;
 }
 
-// Holds the most recent redacted text so the download button can access it later.
 let lastRedactedText = null;
 
 fileInput.addEventListener('change', async (event) => {
@@ -252,16 +249,22 @@ fileInput.addEventListener('change', async (event) => {
       fullText += pageText + '\n';
     }
     console.log(fullText);
-    const { report } = buildReport(fullText);
+    const { report, results } = buildReport(fullText);
     output.textContent = report;
+
+    lastRedactedText = redactText(fullText, results);
+    downloadBtn.style.display = 'inline-block';
 
   } else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
     const arrayBuffer = await file.arrayBuffer();
     const result = await mammoth.extractRawText({ arrayBuffer: arrayBuffer });
     const text = result.value;
     console.log(text);
-    const { report } = buildReport(text);
+    const { report, results } = buildReport(text);
     output.textContent = report;
+
+    lastRedactedText = redactText(text, results);
+    downloadBtn.style.display = 'inline-block';
 
   } else if (file.type.startsWith('image/')) {
     output.textContent = "Reading image, please wait...";
@@ -278,6 +281,8 @@ fileInput.addEventListener('change', async (event) => {
     await worker.terminate();
     const { report } = buildReport(text, metadataInfo);
     output.textContent = report;
+    // Image redaction (blacking out pixels) is a separate, harder feature —
+    // not implemented yet, so no download button here.
 
   } else {
     output.textContent = "This file type isn't supported yet.";
