@@ -8,13 +8,16 @@
 </head>
 <body>
     <h3>Welcome To PrivacyLensAI!</h3>
-       <input type="file" id="file-input" />
-    <p id="output"></p>
+    <input type="file" id="file-input" />
+
+    <div id="risk-badge"></div>
+    <div id="findings-list"></div>
     <button id="download-btn" style="display:none;">Download Redacted Copy</button>
+
     <script src="../lib/pdf.min.js"></script>
     <script src="../lib/tesseract.min.js"></script>
-     <script src="../lib/mammoth.browser.min.js"></script>
-      <script src="../lib/exifr.js"></script>
+    <script src="../lib/mammoth.browser.min.js"></script>
+    <script src="../lib/exifr.js"></script>
     <script src="popup.js"></script>
 </body>
 </html>

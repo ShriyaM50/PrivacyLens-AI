@@ -1,9 +1,9 @@
 body {
-  width: 320px;
+  width: 340px;
   margin: 0;
   padding: 16px;
-  background-color: #6d304958;
-  color: #eae2f037;
+  background-color: #0f172a;
+  color: #e2e8f0;
   font-family: system-ui, -apple-system, sans-serif;
 }
 
@@ -16,14 +16,71 @@ h3 {
 input[type="file"] {
   color: #e2e8f0;
   font-size: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 
-#output {
-  margin-top: 16px;
-  padding: 10px;
+/* Risk badge */
+#risk-badge {
+  display: none;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 14px;
+  text-align: center;
+}
+
+#risk-badge.no-risk    { background-color: #14532d; color: #86efac; }
+#risk-badge.low-risk    { background-color: #713f12; color: #fde047; }
+#risk-badge.medium-risk { background-color: #7c2d12; color: #fdba74; }
+#risk-badge.high-risk   { background-color: #7f1d1d; color: #fca5a5; }
+
+/* Findings list */
+#findings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.finding-card {
   background-color: #1e293b;
+  border-left: 3px solid #f2a93b;
   border-radius: 6px;
-  font-size: 13px;
+  padding: 8px 10px;
+}
+
+.finding-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #f2a93b;
+  margin-bottom: 4px;
+}
+
+.finding-value {
+  font-size: 12px;
+  color: #cbd5e1;
   white-space: pre-line;
+}
+
+.no-findings {
+  font-size: 13px;
+  color: #94a3b8;
+  text-align: center;
+  padding: 10px 0;
+}
+
+/* Download button */
+#download-btn {
+  margin-top: 14px;
+  width: 100%;
+  padding: 8px;
+  background-color: #f2a93b;
+  color: #0f172a;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+}
+#download-btn:hover {
+  background-color: #e0982c;
 }

@@ -1,5 +1,6 @@
 const fileInput = document.getElementById('file-input');
-const output = document.getElementById('output');
+const riskBadge = document.getElementById('risk-badge');
+const findingsList = document.getElementById('findings-list');
 const downloadBtn = document.getElementById('download-btn');
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('lib/pdf.worker.min.js');
@@ -165,39 +166,74 @@ function computeRiskScore(counts) {
 
   if (score > 100) score = 100;
 
-  let label;
+  let label, cssClass;
   if (score === 0) {
-    label = "No Risk";
+    label = "No Risk"; cssClass = "no-risk";
   } else if (score <= 30) {
-    label = "Low Risk";
+    label = "Low Risk"; cssClass = "low-risk";
   } else if (score <= 60) {
-    label = "Medium Risk";
+    label = "Medium Risk"; cssClass = "medium-risk";
   } else {
-    label = "High Risk";
+    label = "High Risk"; cssClass = "high-risk";
   }
 
-  return { score, label };
+  return { score, label, cssClass };
+}
+
+// Builds a list of only the sections that actually found something —
+// each with a title and its display text, ready to turn into cards.
+function buildFindingsList(results, metadataInfo) {
+  const sections = [];
+
+  if (results.emailCount > 0) sections.push({ title: "Email", text: results.emailText });
+  if (results.phoneCount > 0) sections.push({ title: "Phone", text: results.phoneText });
+  if (results.aadhaarCount > 0) sections.push({ title: "Aadhaar", text: results.aadhaarText });
+  if (results.panCount > 0) sections.push({ title: "PAN", text: results.panText });
+  if (results.cardCount > 0) sections.push({ title: "Card", text: results.cardText });
+  if (results.awsCount > 0) sections.push({ title: "AWS Key", text: results.awsText });
+  if (metadataInfo && metadataInfo.hasGPS) sections.push({ title: "Metadata", text: metadataInfo.summaryText });
+
+  return sections;
 }
 
 function buildReport(text, metadataInfo) {
   const results = runDetectors(text);
   const combinedCounts = Object.assign({}, results, { hasGPS: metadataInfo ? metadataInfo.hasGPS : false });
   const risk = computeRiskScore(combinedCounts);
+  const sections = buildFindingsList(results, metadataInfo);
 
-  let report =
-    "Risk Score: " + risk.score + "/100 (" + risk.label + ")" +
-    "\n\nEmail:\n" + results.emailText +
-    "\n\nPhone:\n" + results.phoneText +
-    "\n\nAadhaar:\n" + results.aadhaarText +
-    "\n\nPAN:\n" + results.panText +
-    "\n\nCard:\n" + results.cardText +
-    "\n\nAWS Key:\n" + results.awsText;
+  return { risk, sections, results };
+}
 
-  if (metadataInfo) {
-    report += "\n\nMetadata:\n" + metadataInfo.summaryText;
+// Renders the risk badge and findings cards into the popup's DOM.
+function renderUI(risk, sections) {
+  riskBadge.style.display = 'block';
+  riskBadge.className = risk.cssClass;
+  riskBadge.textContent = "Risk Score: " + risk.score + "/100 (" + risk.label + ")";
+
+  findingsList.innerHTML = '';
+
+  if (sections.length === 0) {
+    findingsList.innerHTML = '<div class="no-findings">Nothing found — this file looks safe to share.</div>';
+    return;
   }
 
-  return { report, results };
+  for (const section of sections) {
+    const card = document.createElement('div');
+    card.className = 'finding-card';
+
+    const title = document.createElement('div');
+    title.className = 'finding-title';
+    title.textContent = section.title;
+
+    const value = document.createElement('div');
+    value.className = 'finding-value';
+    value.textContent = section.text;
+
+    card.appendChild(title);
+    card.appendChild(value);
+    findingsList.appendChild(card);
+  }
 }
 
 function redactText(text, results) {
@@ -225,13 +261,15 @@ fileInput.addEventListener('change', async (event) => {
   const file = event.target.files[0];
   console.log(file);
   downloadBtn.style.display = 'none';
+  riskBadge.style.display = 'none';
+  findingsList.innerHTML = '';
   lastRedactedText = null;
 
   if (file.type === 'text/plain') {
     const text = await file.text();
     console.log(text);
-    const { report, results } = buildReport(text);
-    output.textContent = report;
+    const { risk, sections, results } = buildReport(text);
+    renderUI(risk, sections);
 
     lastRedactedText = redactText(text, results);
     downloadBtn.style.display = 'inline-block';
@@ -249,8 +287,8 @@ fileInput.addEventListener('change', async (event) => {
       fullText += pageText + '\n';
     }
     console.log(fullText);
-    const { report, results } = buildReport(fullText);
-    output.textContent = report;
+    const { risk, sections, results } = buildReport(fullText);
+    renderUI(risk, sections);
 
     lastRedactedText = redactText(fullText, results);
     downloadBtn.style.display = 'inline-block';
@@ -260,14 +298,14 @@ fileInput.addEventListener('change', async (event) => {
     const result = await mammoth.extractRawText({ arrayBuffer: arrayBuffer });
     const text = result.value;
     console.log(text);
-    const { report, results } = buildReport(text);
-    output.textContent = report;
+    const { risk, sections, results } = buildReport(text);
+    renderUI(risk, sections);
 
     lastRedactedText = redactText(text, results);
     downloadBtn.style.display = 'inline-block';
 
   } else if (file.type.startsWith('image/')) {
-    output.textContent = "Reading image, please wait...";
+    findingsList.innerHTML = '<div class="no-findings">Reading image, please wait...</div>';
 
     const metadata = await getImageMetadata(file);
     console.log(metadata);
@@ -279,13 +317,11 @@ fileInput.addEventListener('change', async (event) => {
     console.log(text);
 
     await worker.terminate();
-    const { report } = buildReport(text, metadataInfo);
-    output.textContent = report;
-    // Image redaction (blacking out pixels) is a separate, harder feature —
-    // not implemented yet, so no download button here.
+    const { risk, sections } = buildReport(text, metadataInfo);
+    renderUI(risk, sections);
 
   } else {
-    output.textContent = "This file type isn't supported yet.";
+    findingsList.innerHTML = '<div class="no-findings">This file type isn\'t supported yet.</div>';
   }
 });
 
