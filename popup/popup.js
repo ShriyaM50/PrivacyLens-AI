@@ -1,5 +1,6 @@
 const fileInput = document.getElementById('file-input');
 const output = document.getElementById('output');
+const downloadBtn = document.getElementById('download-btn');
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('lib/pdf.worker.min.js');
 
@@ -70,8 +71,6 @@ async function getOcrWorker() {
   return worker;
 }
 
-// Reads hidden EXIF metadata (GPS location, camera info) from an image file.
-// Wrapped in try/catch since images with no/corrupted EXIF data can throw an error.
 async function getImageMetadata(file) {
   try {
     const tags = await exifr.parse(file, { gps: true });
@@ -121,11 +120,17 @@ function runDetectors(text) {
     aadhaarText,
     panText,
     cardText,
-    awsText
+    awsText,
+    // Raw matched values — needed for redaction, not just display
+    emailMatches: found || [],
+    aadhaarMatches: validAadhaars,
+    panMatches: validPANs,
+    cardMatches: validCards,
+    awsMatches: awsCandidates,
+    phoneMatches: realPhones
   };
 }
 
-// Turns raw EXIF tags into a readable summary and a flag for whether GPS was found.
 function summarizeMetadata(tags) {
   if (!tags) {
     return { hasGPS: false, summaryText: "No metadata found" };
@@ -193,17 +198,46 @@ function buildReport(text, metadataInfo) {
     report += "\n\nMetadata:\n" + metadataInfo.summaryText;
   }
 
-  return report;
+  return { report, results };
 }
+
+// Replaces every detected sensitive value in the original text with a labeled placeholder.
+function redactText(text, results) {
+  let redacted = text;
+
+  const allMatches = [
+    ...results.emailMatches.map(v => ({ value: v, label: 'EMAIL' })),
+    ...results.aadhaarMatches.map(v => ({ value: v, label: 'AADHAAR' })),
+    ...results.panMatches.map(v => ({ value: v, label: 'PAN' })),
+    ...results.cardMatches.map(v => ({ value: v, label: 'CARD' })),
+    ...results.awsMatches.map(v => ({ value: v, label: 'API_KEY' })),
+    ...results.phoneMatches.map(v => ({ value: v, label: 'PHONE' }))
+  ];
+
+  for (const match of allMatches) {
+    redacted = redacted.split(match.value).join('[REDACTED-' + match.label + ']');
+  }
+
+  return redacted;
+}
+
+// Holds the most recent redacted text so the download button can access it later.
+let lastRedactedText = null;
 
 fileInput.addEventListener('change', async (event) => {
   const file = event.target.files[0];
   console.log(file);
+  downloadBtn.style.display = 'none';
+  lastRedactedText = null;
 
   if (file.type === 'text/plain') {
     const text = await file.text();
     console.log(text);
-    output.textContent = buildReport(text);
+    const { report, results } = buildReport(text);
+    output.textContent = report;
+
+    lastRedactedText = redactText(text, results);
+    downloadBtn.style.display = 'inline-block';
 
   } else if (file.type === 'application/pdf') {
     const arrayBuffer = await file.arrayBuffer();
@@ -218,14 +252,16 @@ fileInput.addEventListener('change', async (event) => {
       fullText += pageText + '\n';
     }
     console.log(fullText);
-    output.textContent = buildReport(fullText);
+    const { report } = buildReport(fullText);
+    output.textContent = report;
 
   } else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
     const arrayBuffer = await file.arrayBuffer();
     const result = await mammoth.extractRawText({ arrayBuffer: arrayBuffer });
     const text = result.value;
     console.log(text);
-    output.textContent = buildReport(text);
+    const { report } = buildReport(text);
+    output.textContent = report;
 
   } else if (file.type.startsWith('image/')) {
     output.textContent = "Reading image, please wait...";
@@ -240,9 +276,24 @@ fileInput.addEventListener('change', async (event) => {
     console.log(text);
 
     await worker.terminate();
-    output.textContent = buildReport(text, metadataInfo);
+    const { report } = buildReport(text, metadataInfo);
+    output.textContent = report;
 
   } else {
     output.textContent = "This file type isn't supported yet.";
   }
+});
+
+downloadBtn.addEventListener('click', () => {
+  if (!lastRedactedText) return;
+
+  const blob = new Blob([lastRedactedText], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'redacted-file.txt';
+  a.click();
+
+  URL.revokeObjectURL(url);
 });
