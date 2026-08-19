@@ -2,11 +2,11 @@ const fileInput = document.getElementById('file-input');
 const riskBadge = document.getElementById('risk-badge');
 const findingsList = document.getElementById('findings-list');
 const downloadBtn = document.getElementById('download-btn');
+const downloadImgBtn = document.getElementById('download-img-btn');
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('lib/pdf.worker.min.js');
 
-// Verhoeff checksum tables — fixed, never change
-const d = [
+const dTable = [
   [0,1,2,3,4,5,6,7,8,9],
   [1,2,3,4,0,6,7,8,9,5],
   [2,3,4,0,1,7,8,9,5,6],
@@ -19,7 +19,7 @@ const d = [
   [9,8,7,6,5,4,3,2,1,0]
 ];
 
-const p = [
+const pTable = [
   [0,1,2,3,4,5,6,7,8,9],
   [1,5,7,6,2,8,3,0,9,4],
   [5,8,0,3,7,9,6,1,4,2],
@@ -34,7 +34,7 @@ function isValidAadhaar(numStr) {
   let checksum = 0;
   const digits = numStr.split('').reverse().map(Number);
   for (let i = 0; i < digits.length; i++) {
-    checksum = d[checksum][p[i % 8][digits[i]]];
+    checksum = dTable[checksum][pTable[i % 8][digits[i]]];
   }
   return checksum === 0;
 }
@@ -84,22 +84,17 @@ async function getImageMetadata(file) {
 function runDetectors(text) {
   const emailPattern = /\S+@\S+\.\S+/g;
   const found = text.match(emailPattern);
-  let emailText = found ? found.join('\n') : "No email found";
 
   const aadhaarCandidates = text.match(/\d{12}/g) || [];
   const validAadhaars = aadhaarCandidates.filter(isValidAadhaar);
-  let aadhaarText = validAadhaars.length > 0 ? validAadhaars.join('\n') : "No Aadhaar number found";
 
   const panCandidates = text.match(/\b[A-Z]{5}[0-9]{4}[A-Z]\b/g) || [];
   const validPANs = panCandidates.filter(isValidPAN);
-  let panText = validPANs.length > 0 ? validPANs.join('\n') : "No PAN number found";
 
   const cardCandidates = text.match(/\d{16}/g) || [];
   const validCards = cardCandidates.filter(isValidCard);
-  let cardText = validCards.length > 0 ? validCards.join('\n') : "No card number found";
 
   const awsCandidates = text.match(/AKIA[A-Z0-9]{16}/g) || [];
-  let awsText = awsCandidates.length > 0 ? awsCandidates.join('\n') : "No AWS key found";
 
   const phoneCandidates = text.match(/\d{10}/g) || [];
   const realPhones = phoneCandidates.filter((phone) => {
@@ -107,7 +102,6 @@ function runDetectors(text) {
     const isPartOfCard = validCards.some((card) => card.includes(phone));
     return !isPartOfAadhaar && !isPartOfCard;
   });
-  let phoneText = realPhones.length > 0 ? realPhones.join('\n') : "No phone number found";
 
   return {
     emailCount: found ? found.length : 0,
@@ -116,12 +110,6 @@ function runDetectors(text) {
     panCount: validPANs.length,
     cardCount: validCards.length,
     awsCount: awsCandidates.length,
-    emailText,
-    phoneText,
-    aadhaarText,
-    panText,
-    cardText,
-    awsText,
     emailMatches: found || [],
     aadhaarMatches: validAadhaars,
     panMatches: validPANs,
@@ -133,7 +121,7 @@ function runDetectors(text) {
 
 function summarizeMetadata(tags) {
   if (!tags) {
-    return { hasGPS: false, summaryText: "No metadata found" };
+    return { hasGPS: false, lines: [] };
   }
 
   const lines = [];
@@ -150,8 +138,7 @@ function summarizeMetadata(tags) {
     lines.push("Taken: " + tags.DateTimeOriginal);
   }
 
-  const summaryText = lines.length > 0 ? lines.join('\n') : "No metadata found";
-  return { hasGPS, summaryText };
+  return { hasGPS, lines };
 }
 
 function computeRiskScore(counts) {
@@ -180,58 +167,41 @@ function computeRiskScore(counts) {
   return { score, label, cssClass };
 }
 
-// Builds a list of only the sections that actually found something —
-// each with a title and its display text, ready to turn into cards.
-function buildFindingsList(results, metadataInfo) {
-  const sections = [];
-
-  if (results.emailCount > 0) sections.push({ title: "Email", text: results.emailText });
-  if (results.phoneCount > 0) sections.push({ title: "Phone", text: results.phoneText });
-  if (results.aadhaarCount > 0) sections.push({ title: "Aadhaar", text: results.aadhaarText });
-  if (results.panCount > 0) sections.push({ title: "PAN", text: results.panText });
-  if (results.cardCount > 0) sections.push({ title: "Card", text: results.cardText });
-  if (results.awsCount > 0) sections.push({ title: "AWS Key", text: results.awsText });
-  if (metadataInfo && metadataInfo.hasGPS) sections.push({ title: "Metadata", text: metadataInfo.summaryText });
-
-  return sections;
-}
-
-function buildReport(text, metadataInfo) {
-  const results = runDetectors(text);
+function renderReport(results, metadataInfo) {
   const combinedCounts = Object.assign({}, results, { hasGPS: metadataInfo ? metadataInfo.hasGPS : false });
   const risk = computeRiskScore(combinedCounts);
-  const sections = buildFindingsList(results, metadataInfo);
 
-  return { risk, sections, results };
-}
-
-// Renders the risk badge and findings cards into the popup's DOM.
-function renderUI(risk, sections) {
-  riskBadge.style.display = 'block';
-  riskBadge.className = risk.cssClass;
   riskBadge.textContent = "Risk Score: " + risk.score + "/100 (" + risk.label + ")";
+  riskBadge.className = risk.cssClass;
 
   findingsList.innerHTML = '';
 
-  if (sections.length === 0) {
-    findingsList.innerHTML = '<div class="no-findings">Nothing found — this file looks safe to share.</div>';
+  const sections = [
+    { label: 'Email', values: results.emailMatches },
+    { label: 'Phone', values: results.phoneMatches },
+    { label: 'Aadhaar', values: results.aadhaarMatches },
+    { label: 'PAN', values: results.panMatches },
+    { label: 'Card', values: results.cardMatches },
+    { label: 'AWS Key', values: results.awsMatches }
+  ];
+
+  if (metadataInfo && metadataInfo.lines.length > 0) {
+    sections.push({ label: 'Metadata', values: metadataInfo.lines });
+  }
+
+  const nonEmptySections = sections.filter(s => s.values.length > 0);
+
+  if (nonEmptySections.length === 0) {
+    findingsList.innerHTML = '<div class="finding-card">Nothing sensitive found in this file.</div>';
     return;
   }
 
-  for (const section of sections) {
+  for (const section of nonEmptySections) {
     const card = document.createElement('div');
     card.className = 'finding-card';
-
-    const title = document.createElement('div');
-    title.className = 'finding-title';
-    title.textContent = section.title;
-
-    const value = document.createElement('div');
-    value.className = 'finding-value';
-    value.textContent = section.text;
-
-    card.appendChild(title);
-    card.appendChild(value);
+    card.innerHTML =
+      '<div class="finding-label">' + section.label + '</div>' +
+      '<div class="finding-value">' + section.values.join('\n') + '</div>';
     findingsList.appendChild(card);
   }
 }
@@ -255,21 +225,62 @@ function redactText(text, results) {
   return redacted;
 }
 
+// Draws the original image onto a canvas, then blacks out any word whose text
+// is part of a detected sensitive value, using OCR's per-word bounding boxes.
+async function redactImage(file, words, results) {
+  const sensitiveValues = [
+    ...results.emailMatches,
+    ...results.aadhaarMatches,
+    ...results.panMatches,
+    ...results.cardMatches,
+    ...results.awsMatches,
+    ...results.phoneMatches
+  ];
+
+  const imageUrl = URL.createObjectURL(file);
+  const img = new Image();
+  await new Promise((resolve) => {
+    img.onload = resolve;
+    img.src = imageUrl;
+  });
+
+  const canvas = document.createElement('canvas');
+  canvas.width = img.width;
+  canvas.height = img.height;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+
+  ctx.fillStyle = 'black';
+  for (const word of words) {
+    const isSensitive = sensitiveValues.some((value) => value.includes(word.text));
+    if (isSensitive) {
+      const { x0, y0, x1, y1 } = word.bbox;
+      ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+    }
+  }
+
+  URL.revokeObjectURL(imageUrl);
+  return canvas;
+}
+
 let lastRedactedText = null;
+let lastRedactedCanvas = null;
 
 fileInput.addEventListener('change', async (event) => {
   const file = event.target.files[0];
   console.log(file);
   downloadBtn.style.display = 'none';
-  riskBadge.style.display = 'none';
-  findingsList.innerHTML = '';
+  downloadImgBtn.style.display = 'none';
   lastRedactedText = null;
+  lastRedactedCanvas = null;
+  riskBadge.textContent = '';
+  riskBadge.className = '';
+  findingsList.innerHTML = '';
 
   if (file.type === 'text/plain') {
     const text = await file.text();
-    console.log(text);
-    const { risk, sections, results } = buildReport(text);
-    renderUI(risk, sections);
+    const results = runDetectors(text);
+    renderReport(results);
 
     lastRedactedText = redactText(text, results);
     downloadBtn.style.display = 'inline-block';
@@ -277,7 +288,6 @@ fileInput.addEventListener('change', async (event) => {
   } else if (file.type === 'application/pdf') {
     const arrayBuffer = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-    console.log(pdf);
 
     let fullText = '';
     for (let i = 1; i <= pdf.numPages; i++) {
@@ -286,9 +296,8 @@ fileInput.addEventListener('change', async (event) => {
       const pageText = content.items.map(item => item.str).join(' ');
       fullText += pageText + '\n';
     }
-    console.log(fullText);
-    const { risk, sections, results } = buildReport(fullText);
-    renderUI(risk, sections);
+    const results = runDetectors(fullText);
+    renderReport(results);
 
     lastRedactedText = redactText(fullText, results);
     downloadBtn.style.display = 'inline-block';
@@ -297,31 +306,41 @@ fileInput.addEventListener('change', async (event) => {
     const arrayBuffer = await file.arrayBuffer();
     const result = await mammoth.extractRawText({ arrayBuffer: arrayBuffer });
     const text = result.value;
-    console.log(text);
-    const { risk, sections, results } = buildReport(text);
-    renderUI(risk, sections);
+    const results = runDetectors(text);
+    renderReport(results);
 
     lastRedactedText = redactText(text, results);
     downloadBtn.style.display = 'inline-block';
 
   } else if (file.type.startsWith('image/')) {
-    findingsList.innerHTML = '<div class="no-findings">Reading image, please wait...</div>';
+    riskBadge.textContent = "Reading image, please wait...";
 
     const metadata = await getImageMetadata(file);
-    console.log(metadata);
     const metadataInfo = summarizeMetadata(metadata);
 
     const worker = await getOcrWorker();
     const result = await worker.recognize(file);
+    const words = result.data.words;
     const text = result.data.text;
-    console.log(text);
-
     await worker.terminate();
-    const { risk, sections } = buildReport(text, metadataInfo);
-    renderUI(risk, sections);
+
+    const results = runDetectors(text);
+    renderReport(results, metadataInfo);
+
+    // Only offer an image download if we actually found something to black out.
+    const hasTextFindings =
+      results.emailMatches.length + results.aadhaarMatches.length +
+      results.panMatches.length + results.cardMatches.length +
+      results.awsMatches.length + results.phoneMatches.length > 0;
+
+    if (hasTextFindings) {
+      lastRedactedCanvas = await redactImage(file, words, results);
+      downloadImgBtn.style.display = 'inline-block';
+    }
 
   } else {
-    findingsList.innerHTML = '<div class="no-findings">This file type isn\'t supported yet.</div>';
+    riskBadge.textContent = "This file type isn't supported yet.";
+    riskBadge.className = '';
   }
 });
 
@@ -337,4 +356,17 @@ downloadBtn.addEventListener('click', () => {
   a.click();
 
   URL.revokeObjectURL(url);
+});
+
+downloadImgBtn.addEventListener('click', () => {
+  if (!lastRedactedCanvas) return;
+
+  lastRedactedCanvas.toBlob((blob) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'redacted-image.png';
+    a.click();
+    URL.revokeObjectURL(url);
+  });
 });
